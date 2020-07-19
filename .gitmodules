@@ -1,0 +1,3 @@
+[submodule "bots/example-kotlin"]
+	path = bots/example-kotlin
+	url = https://github.com/kicferk1/dynamite-kotlin.git
