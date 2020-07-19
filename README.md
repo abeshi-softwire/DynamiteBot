@@ -1,2 +1,2 @@
 # DynamiteBot
-A truly mighty bot to challenge even the great Unsightly Chimpanzee
+A collaborative effort to take down the mighty Unsightly
