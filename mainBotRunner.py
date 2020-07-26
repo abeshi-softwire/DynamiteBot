@@ -26,7 +26,8 @@ def fuzzy_find_bot(name):
 class Runner:
     EXT_HANDLERS = {
             ".py": ["python3", "pythonRunner.py"],
-            ".js": ["node", "jsRunner.js"]
+            ".js": ["node", "jsRunner.js"],
+            ".jar": ["java", "-jar", "javaRunner.jar"]
     }
 
     def __init__(self, bot):
