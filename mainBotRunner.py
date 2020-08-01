@@ -42,10 +42,11 @@ def fuzzy_find_bot(name):
     pattern = ".*?".join(char for char in name)
     regex = re.compile(pattern, re.IGNORECASE)
     for bot in bots:
-        match = regex.search(bot)
-        if match: suggestions.append((len(match.group()), match.start(), bot))
+        matches = regex.finditer(bot)
+        for match in matches: suggestions.append((len(match.group()), match.start(), bot))
     if len(suggestions) == 0:
         raise RuntimeError(f"Couldn't find bot matching {name}")
+    print(sorted(suggestions))
     return sorted(suggestions)[0][2]
 
 class Runner:
