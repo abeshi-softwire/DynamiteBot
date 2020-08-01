@@ -1,4 +1,29 @@
-import sys, socket, subprocess, glob, re
+import sys, socket, subprocess, glob, re, os
+from itertools import combinations, product
+
+from concurrent.futures import ThreadPoolExecutor
+
+class ProgressBar:
+    def __init__(self, max_n, width, text):
+        self.upto = max_n
+        self.width = width
+        self.text = text
+        self.current = 0
+        self.show()
+
+    def next(self):
+        self.current += 1
+        self.show()
+    def set_text(self, t):
+        self.text = t
+
+    def show(self):
+        progress = self.current / self.upto
+        bar_w = self.width - len(self.text) - 4 # [=] txt
+        bar = ("=" * int(progress * bar_w)).ljust(bar_w, " ")
+        print(f"\r[{bar}] {self.text}", end="")
+    def done(self):
+        print()
 
 def get_all_bots():
     # Get list of all bots
@@ -33,7 +58,11 @@ class Runner:
     def __init__(self, bot):
         # Make a server, connect to it
         self.bot_path = bot
-        self.bot_name = bot[bot.rfind("/")+1:bot.rfind(".")]
+        self.type = self.bot_path[self.bot_path.rfind("."):]
+        self.bot_name = bot[bot.rfind("/")+1:bot.rfind(".")] + f"({self.type})"
+        self.play_round = lambda x: "E"
+
+    def start(self):
         self.setup_port()
         self.sock_srv.listen(1)
         self.start_bot_client()
@@ -51,7 +80,6 @@ class Runner:
                 self.port += 1
 
     def start_bot_client(self):
-        self.type = self.bot_path[self.bot_path.rfind("."):]
         if not self.type in Runner.EXT_HANDLERS:
             raise RuntimeError(f"Cannot handle extension {self.type}")
         runner = Runner.EXT_HANDLERS[self.type]
@@ -80,9 +108,12 @@ class Runner:
         return this_move[0]
 
     def quit(self):
+        try: self.sock.send("E\n")
+        except: pass
         self.sock.close()
+        stdout = self.bot_process.stdout.read().decode("utf-8")
         self.bot_process.wait()
-        return self.bot_process.stdout.read().decode("utf-8")
+        return stdout
 
 class Match:
     GAME_ROUNDS = 2500
@@ -118,8 +149,10 @@ class Match:
             if "E" in self.last_round:
                 self.reason = "Generic error, check bot logs"
                 if p1m == "E":
-                    return (self.WIN_SCORE, 0)
-                return (0, self.WIN_SCORE)
+                    self.reason += ": bot1 err"
+                    return (0, self.WIN_SCORE)
+                self.reason += ": bot2 err"
+                return (self.WIN_SCORE, 0)
             self.history.append(self.last_round)
             # Update scores and stuff
             dynamites[0] += p1m == "D"
@@ -146,26 +179,81 @@ def save_json(f, history):
 
     f.write("""]}""")
 
+class Tournament:
+    LOG_DIR = "tournament/"
+    def __init__(self, bot_paths, n_games=1):
+        self.bots = bot_paths
+        self.n_games = n_games
+        self.print_bot_info()
+        self.games = list(combinations(self.bots, 2))
+        self.num_games = int(len(self.bots) * (len(self.bots)-1) / 2)
+
+        if not os.path.exists(self.LOG_DIR):
+            os.mkdir(self.LOG_DIR)
+
+    def print_bot_info(self):
+        print(f"Tounament, {self.n_games} games each")
+        print("="*20)
+        for bot in self.bots:
+            r = Runner(bot) # Don't start, don't need to actually run
+            print(f" * Bot {r.bot_name}")
+    
+    def play_game(self, game, j):
+        bot1, bot2 = map(lambda path: Runner(path), game)
+        bot1.start(); bot2.start()
+        #print(f"Running game #{i+1}/{self.num_games} - {bot1.bot_name} vs {bot2.bot_name}")
+        game_id = self.LOG_DIR + bot1.bot_name + "-" + bot2.bot_name
+        match = Match(bot1, bot2)
+        score = match.play_game()
+        #print(f" #{j+1}/{self.n_games} score: {score}")
+        with open(game_id + "-" + str(j) + ".json", "w+") as f:
+            save_json(f, match.history)
+        with open(game_id + "-" + str(j) + ".log", "w+") as f:
+            print(match.reason, file=f)
+            print("="*20, file=f)
+            print(f"==Bot {bot1.bot_name} output==", file=f)
+            print("="*20, file=f)
+            print(bot1.quit(), end="", file=f)
+            print("="*20, file=f)
+            print(f"==Bot {bot2.bot_name} output==", file=f)
+            print("="*20, file=f)
+            print(bot2.quit(), end="", file=f)
+            print("="*20, file=f)
+        #print(f" saved to {game_id}.json")
+        return score, match.reason
+
+    def play(self):
+        print()
+        all_games = list(product(self.games, range(self.n_games)))
+        #with ThreadPoolExecutor(max_workers = 8) as executor:
+        lbots, rbots = zip(*self.games)
+        ljust = max(map(lambda b: len(Runner(b).bot_name), lbots))
+        rjust = max(map(lambda b: len(Runner(b).bot_name), rbots))
+        if True:
+            exec_map = map#executor.map
+            pbar = ProgressBar(self.num_games * self.n_games, 80, "")
+            pbar.show()
+
+            results = \
+                list(exec_map(lambda x: [self.play_game(x[0], x[1]), pbar.next()][0],
+                    all_games))
+
+        pbar.done()
+        for (score, reason), (game, n) in zip(results, all_games):
+            b1, b2 = map(lambda p: Runner(p), game)
+            print(f"{b1.bot_name.rjust(ljust)} v {b2.bot_name.ljust(rjust)}", end="")
+            print(f" #{n} : {score} ".ljust(20) + f"- {reason}")
+
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} [bot1] [bot2]")
+        print(f"Usage: {sys.argv[0]} [-n games] [bot1] [bot2] ...")
         sys.exit(0)
-    bot1 = fuzzy_find_bot(sys.argv[1])
-    bot2 = fuzzy_find_bot(sys.argv[2])
-    match = Match(Runner(bot1), Runner(bot2))
-    print(f"Bot {match.bot1.bot_name} running on port {match.bot1.port}")
-    print(f"Bot {match.bot2.bot_name} running on port {match.bot2.port}")
+    games_specified = sys.argv[1] in ["-n", "--number"]
+    num_games = int(sys.argv[2]) if games_specified else 1
+    bot_names = sys.argv[(3 if games_specified else 1):]
 
-    score = match.play_game()
+    bots = list(map(fuzzy_find_bot, bot_names))
 
-    print(f"Game ended, score = {score}")
-    print(f"Reason: {match.reason}")
-    print(f"Bot {match.bot1.bot_name} output")
-    print("="*20)
-    print(match.bot1.quit(), end="")
-    print(f"Bot {match.bot2.bot_name} output")
-    print("="*20)
-    print(match.bot2.quit(), end="")
+    tournament = Tournament(bots, num_games)
 
-    save_json(open("results.json", "w+"), match.history)
-    print("Saved results to results.json")
+    tournament.play()

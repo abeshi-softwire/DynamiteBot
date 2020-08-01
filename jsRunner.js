@@ -49,7 +49,7 @@ try {
   var p1move = bot_instance.makeMove(gamestate);
   sock.write(p1move + '\n');
   sock.on('data', d => {
-    const p2move = d[0];
+    const p2move = String.fromCharCode(d[0]);
     gamestate['rounds'].push({'p1': p1move, 'p2': p2move});
     p1move = bot_instance.makeMove(gamestate);
     sock.write(p1move + '\n');
