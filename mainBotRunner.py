@@ -157,7 +157,7 @@ class Match:
             # Update scores and stuff
             dynamites[0] += p1m == "D"
             dynamites[1] += p2m == "D"
-            if (not self.beats(p1m, p2m)) and (not self.beats(p1m, p2m)):
+            if (not self.beats(p1m, p2m)) and (not self.beats(p2m, p1m)):
                 round_score += 1
             elif self.beats(p1m, p2m):
                 scores[0] += round_score
@@ -239,10 +239,19 @@ class Tournament:
                     all_games))
 
         pbar.done()
+        botscores = {}
+        bottotals = {}
         for (score, reason), (game, n) in zip(results, all_games):
             b1, b2 = map(lambda p: Runner(p), game)
             print(f"{b1.bot_name.rjust(ljust)} v {b2.bot_name.ljust(rjust)}", end="")
             print(f" #{n} : {score} ".ljust(20) + f"- {reason}")
+            botscores[b1.bot_name] = botscores.get(b1.bot_name, 0) + (1 if score[0] > score[1] else 0)
+            botscores[b2.bot_name] = botscores.get(b2.bot_name, 0) + (1 if score[0] < score[1] else 0)
+            bottotals[b1.bot_name] = bottotals.get(b1.bot_name, 0) + score[0]
+            bottotals[b2.bot_name] = bottotals.get(b2.bot_name, 0) + score[1]
+        print("="*20)
+        for i, (name, score) in enumerate(sorted(botscores.items(), key=lambda i: -i[1] - bottotals[i[0]]/(self.n_games*2000))):
+            print(f" {i+1}) {name.rjust(max(ljust, rjust))} - {score} - total {bottotals[name]}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
